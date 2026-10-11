@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated data and temporary files
+data/train/
+results/*
+!results/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
