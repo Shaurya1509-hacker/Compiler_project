@@ -1,0 +1,96 @@
+import joblib
+from src.tac_parser import parse_file
+from src.liveness import analyze_liveness
+from src.interference import build_interference
+from src.features import extract_features
+from src.classical_allocator import allocate_registers
+
+
+def allocate_ml(graph, features, model, k):
+    if k < 1:
+        raise ValueError("Number of registers must be positive")
+
+    original = {v: set(n) for v, n in graph.items()}
+    remaining = {v: set(n) for v, n in graph.items()}
+    stack = []
+
+    while remaining:
+        node = next(
+            (v for v in remaining if len(remaining[v]) < k),
+            None
+        )
+
+        if node is None:
+            candidates = list(remaining)
+            X = [[
+                features[v]["degree"],
+                features[v]["live_range_length"],
+                features[v]["use_frequency"]
+            ] for v in candidates]
+
+            predictions = model.predict(X)
+            scores = model.predict_proba(X)
+
+            node = max(
+                range(len(candidates)),
+                key=lambda i: (
+                    int(predictions[i] == 1),
+                    scores[i][list(model.classes_).index(1)]
+                    if 1 in model.classes_ else 0,
+                    len(remaining[candidates[i]])
+                )
+            )
+            node = candidates[node]
+
+        stack.append(node)
+
+        for neighbor in remaining[node]:
+            if neighbor in remaining:
+                remaining[neighbor].discard(node)
+
+        del remaining[node]
+
+    registers = {}
+    spilled = set()
+
+    while stack:
+        node = stack.pop()
+        unavailable = {
+            registers[n]
+            for n in original[node]
+            if n in registers
+        }
+
+        reg = next(
+            (r for r in range(k) if r not in unavailable),
+            None
+        )
+
+        if reg is None:
+            spilled.add(node)
+        else:
+            registers[node] = reg
+
+    return registers, spilled
+
+
+def main():
+    instructions = parse_file("data/test/program1.tac")
+    _, _, _, live_out = analyze_liveness(instructions)
+    graph = build_interference(instructions, live_out)
+    features = extract_features(instructions, graph)
+
+    model = joblib.load("models/spill_model.pkl")
+
+    registers, spilled = allocate_ml(graph, features, model, 3)
+
+    print("ML-Guided Register Allocation:")
+    for var in sorted(registers):
+        print(f"{var} -> R{registers[var] + 1}")
+
+    print("\nSpilled Variables:", sorted(spilled))
+    print("Spill Count:", len(spilled))
+
+
+if __name__ == "__main__":
+    main()
