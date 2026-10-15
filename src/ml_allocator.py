@@ -1,4 +1,5 @@
 import joblib
+import pandas as pd
 from src.tac_parser import parse_file
 from src.liveness import analyze_liveness
 from src.interference import build_interference
@@ -22,25 +23,42 @@ def allocate_ml(graph, features, model, k):
 
         if node is None:
             candidates = list(remaining)
-            X = [[
-                features[v]["degree"],
-                features[v]["live_range_length"],
-                features[v]["use_frequency"]
-            ] for v in candidates]
+
+            X = pd.DataFrame(
+                [
+                    [
+                        features[v]["degree"],
+                        features[v]["live_range_length"],
+                        features[v]["use_frequency"]
+                    ]
+                    for v in candidates
+                ],
+                columns=[
+                    "degree",
+                    "live_range_length",
+                    "use_frequency"
+                ]
+            )
 
             predictions = model.predict(X)
             scores = model.predict_proba(X)
 
-            node = max(
+            spill_index = (
+                list(model.classes_).index(1)
+                if 1 in model.classes_
+                else None
+            )
+
+            node_index = max(
                 range(len(candidates)),
                 key=lambda i: (
                     int(predictions[i] == 1),
-                    scores[i][list(model.classes_).index(1)]
-                    if 1 in model.classes_ else 0,
+                    scores[i][spill_index] if spill_index is not None else 0,
                     len(remaining[candidates[i]])
                 )
             )
-            node = candidates[node]
+
+            node = candidates[node_index]
 
         stack.append(node)
 
@@ -55,6 +73,7 @@ def allocate_ml(graph, features, model, k):
 
     while stack:
         node = stack.pop()
+
         unavailable = {
             registers[n]
             for n in original[node]
@@ -72,7 +91,6 @@ def allocate_ml(graph, features, model, k):
             registers[node] = reg
 
     return registers, spilled
-
 
 def main():
     instructions = parse_file("data/test/program1.tac")
